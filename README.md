@@ -14,7 +14,7 @@ A command-line tool for backing up MySQL databases to local storage or AWS S3.
 
 ## Requirements
 
--   Python 3.6+
+-   Python 3.11+
 -   `mysql-connector-python`
 -   `boto3`
 -   `python-dotenv`
@@ -103,10 +103,10 @@ Options:
 -   `--mysqldump PATH`: override mysqldump path.
 -   `--config FILE`: override config file path.
 
-You can still run:
+You can still run the module directly:
 
 ```bash
-python -m database_backup --local
+python -m db_backup --local
 ```
 
 ## Usage
@@ -114,31 +114,31 @@ python -m database_backup --local
 Preferred: run as a module from the project root (this works reliably regardless of relative imports):
 
 ```bash
-python -m database_backup --config .env --local
+python -m db_backup --config .env --local
 ```
 
 Or run the script directly (works after the import fallback fix):
 
 ```bash
-python database_backup/main.py --config .env --local
+python db_backup/main.py --config .env --local
 ```
 
 You can override `mysqldump` path via CLI:
 
 ```bash
-python -m database_backup --config .env --local --mysqldump /opt/homebrew/opt/mysql-client/bin/mysqldump
+python -m db_backup --config .env --local --mysqldump /opt/homebrew/opt/mysql-client/bin/mysqldump
 ```
 
 To store your backups in an S3 bucket:
 
 ```bash
-python -m database_backup --config .env --s3
+python -m db_backup --config .env --s3
 ```
 
 You can also override the retention count and backup directory using the command-line options:
 
 ```bash
-python -m database_backup --config .env --retention 10 --local --backup-dir /path/to/backups
+python -m db_backup --config .env --retention 10 --local --backup-dir /path/to/backups
 ```
 
 ## Architecture

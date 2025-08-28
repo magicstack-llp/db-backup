@@ -12,6 +12,34 @@ dependencies = [
     "python-dotenv>=1.1.1",
 ]
 
+authors = [
+    { name = "Kuldip Satpute" }
+]
+license = "MIT"
+keywords = [
+    "backup", "database", "mysql", "mysqldump", "s3", "cli", "aws"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Database",
+    "Topic :: System :: Archiving :: Backup",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/satputekuldip/db-backup"
+Repository = "https://github.com/satputekuldip/db-backup"
+Issues = "https://github.com/satputekuldip/db-backup/issues"
+
 
 [project.scripts]
 db-backup = "db_backup.main:backup_cli"
@@ -31,3 +59,4 @@ packages = [
     "db_backup.interface",
 ]
 package-dir = {"db_backup" = "db-backup"}
+license-files = ["LICENSE"]

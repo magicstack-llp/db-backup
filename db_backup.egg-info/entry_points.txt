@@ -1,3 +1,0 @@
-[console_scripts]
-database-backup = db_backup.main:backup_cli
-db-backup = db_backup.main:backup_cli
