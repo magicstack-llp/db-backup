@@ -15,3 +15,7 @@ dependencies = [
 # Short CLI name users can run after installation
 "db-backup" = "database_backup.main:backup_cli"
 "database-backup" = "database_backup.main:backup_cli"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
