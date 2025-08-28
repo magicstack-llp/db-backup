@@ -1,6 +1,6 @@
 
 [project]
-name = "db-backup"
+name = "database-backup"
 version = "0.1.5"
 description = "A CLI tool for backing up databases to cloud storage."
 readme = "README.md"
