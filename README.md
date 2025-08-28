@@ -57,6 +57,8 @@ A command-line tool for backing up MySQL databases to local storage or AWS S3.
     RETENTION_COUNT=5
     # Optional: set full path or command name for mysqldump
     MYSQLDUMP_PATH=/opt/homebrew/opt/mysql-client/bin/mysqldump
+    BACKUP_DRIVER=local # local, s3
+    EXCLUDED_DATABASES=db_1,db_2
     ```
 
 ## Configuration
@@ -70,17 +72,19 @@ Override with `--config` or `DATABASE_BACKUP_CONFIG` env.
 Example `.env`:
 
 ```env
-MYSQL_HOST=localhost
+MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_USER=root
-MYSQL_PASSWORD=mysecretpassword
-BACKUP_DIR=./backups
+MYSQL_PASSWORD=password
+BACKUP_DIR=/Users/<USER>/backups/databses
 S3_BUCKET=mybucket
 S3_PATH=backups
 AWS_ACCESS_KEY_ID=XXXXXXX
 AWS_SECRET_ACCESS_KEY=YYYYYYY
 RETENTION_COUNT=5
 MYSQLDUMP_PATH=/opt/homebrew/opt/mysql-client/bin/mysqldump
+BACKUP_DRIVER=local # local, s3
+EXCLUDED_DATABASES=db_1,db_2
 ```
 
 ## CLI usage
