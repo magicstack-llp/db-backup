@@ -1,0 +1,17 @@
+[project]
+name = "database-backup"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.40.19",
+    "click>=8.2.1",
+    "mysql-connector-python>=9.4.0",
+    "python-dotenv>=1.1.1",
+]
+
+[project.scripts]
+# Short CLI name users can run after installation
+"db-backup" = "database_backup.main:backup_cli"
+"database-backup" = "database_backup.main:backup_cli"
