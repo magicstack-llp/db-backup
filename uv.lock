@@ -52,9 +52,9 @@ wheels = [
 ]
 
 [[package]]
-name = "database-backup"
-version = "0.1.0"
-source = { virtual = "." }
+name = "db-backup"
+version = "0.1.2"
+source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "click" },

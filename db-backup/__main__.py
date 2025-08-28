@@ -1,4 +1,4 @@
-"""Module entry point for `python -m database_backup`"""
+"""Module entry point for `python -m db_backup`"""
 from .main import backup_cli
 
 if __name__ == "__main__":
