@@ -1,7 +1,7 @@
 
 [project]
 name = "database-backup"
-version = "0.1.5"
+version = "0.1.7"
 description = "A CLI tool for backing up databases to cloud storage."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,9 +36,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/satputekuldip/db-backup"
-Repository = "https://github.com/satputekuldip/db-backup"
-Issues = "https://github.com/satputekuldip/db-backup/issues"
+Homepage = "https://github.com/magicstack-llp/db-backup"
+Repository = "https://github.com/magicstack-llp/db-backup"
+Issues = "https://github.com/magicstack-llp/db-backup/issues"
 
 
 [project.scripts]
