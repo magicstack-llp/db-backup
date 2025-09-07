@@ -1,38 +1,49 @@
-name: Publish to PyPI
+name: Publish Python Package
 
 on:
     push:
         tags:
-            - "v*"
-
-permissions:
-    contents: read
-    id-token: write
+            - "v*.*.*"
 
 jobs:
-    build-and-publish:
+    github-release:
+        name: create github release
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
         steps:
-            - uses: actions/checkout@v4
-            - uses: actions/setup-python@v5
+            - name: Checkout
+              uses: actions/checkout@v4
               with:
-                  python-version: "3.12"
-            - name: Install build deps
+                  fetch-depth: 0
+            - name: Create release
+              uses: ncipollo/release-action@v1
+              with:
+                  generateReleaseNotes: true
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+    publish-to-pypi:
+        name: upload release to PyPI
+        needs: [github-release]
+        runs-on: ubuntu-latest
+        environment: pypi
+        permissions:
+            id-token: write # Needed for OIDC authentication to PyPI
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.x"
+                  cache: pip
+            - name: Upgrade build tooling
               run: |
                   python -m pip install --upgrade pip
-                  python -m pip install build twine
+                  pip install build
             - name: Build package
               run: python -m build
-            - name: Twine check
-              run: python -m twine check dist/*
-            - name: Publish to PyPI via OIDC
-              if: startsWith(github.ref, 'refs/tags/v')
-              id: publish_oidc
+            - name: Publish package
               uses: pypa/gh-action-pypi-publish@release/v1
-              continue-on-error: true
-            - name: Publish to PyPI via API token (fallback)
-              if: startsWith(github.ref, 'refs/tags/v') && steps.publish_oidc.outcome == 'failure'
-              uses: pypa/gh-action-pypi-publish@release/v1
-              with:
-                  user: __token__
-                  password: ${{ secrets.PYPI_API_TOKEN }}
