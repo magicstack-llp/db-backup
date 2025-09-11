@@ -269,6 +269,21 @@ db-backup --local --mysqldump /opt/homebrew/opt/mysql-client/bin/mysqldump --ret
 db-backup --s3
 ```
 
+## Upcoming Features
+
+-   Web UI Mangement Server
+-   Multiple connections with SQLite
+-   Postgres Support
+-   Mongodb Support
+-   Remote Connection Support with SSH and bastion host
+-   Independent Docker Container
+-   Backup history and management
+-   Restore Database MySQL, Postgres, MongoDB CLI and UI
+-   Multiple compression
+-   Multifile database backup
+-   Exclude tables
+-   Database Size Viewer
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue if you have any suggestions or feedback.
