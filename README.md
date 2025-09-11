@@ -64,6 +64,32 @@ db-backup --s3      # store on S3
     # Typical binary path: /opt/homebrew/opt/mysql-client/bin/mysqldump (Apple Silicon)
     ```
 
+    On Debian/Ubuntu:
+
+    ```bash
+    sudo apt-get update
+    sudo apt-get install mysql-client
+    # Typical binary path: /usr/bin/mysqldump
+    ```
+
+    On Red Hat/CentOS/Fedora:
+
+    ```bash
+    sudo dnf install mysql
+    #    OR
+    sudo dnf install @mysql
+
+    # Typical binary path: /usr/bin/mysqldump
+    ```
+
+    On Arch/Manjaro:
+
+    ```bash
+    sudo pacman -Syu
+    sudo pacman -S mysql
+    # Typical binary path: /usr/bin/mysqldump
+    ```
+
 ## Installation
 
 From PyPI (recommended):
