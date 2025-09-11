@@ -8,6 +8,10 @@ A command-line tool for backing up MySQL databases to local storage or AWS S3.
 
 ```bash
 pip install database-backup
+
+# upgrade
+pip install --upgrade database-backup
+
 ```
 
 1. See options
