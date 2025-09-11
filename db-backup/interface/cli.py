@@ -7,7 +7,7 @@ import subprocess
 import sys
 import datetime
 import re
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 
 # Support running both as a package (relative imports) and as a script (absolute imports)
 try:  # package context
@@ -36,16 +36,35 @@ def _ensure_config_file(config_path: str) -> None:
     if cfg_dir and not os.path.exists(cfg_dir):
         os.makedirs(cfg_dir, exist_ok=True)
 
-    # Prompts
-    mysql_host = click.prompt("MySQL host", default="localhost")
-    mysql_port = click.prompt("MySQL port", default=3306, type=int)
-    mysql_user = click.prompt("MySQL user", default="root")
-    mysql_password = click.prompt("MySQL password", hide_input=True, default="")
+    _init_config_interactive(config_path)
+
+
+def _init_config_interactive(config_path: str) -> None:
+    """Interactively create or update a .env config file at config_path."""
+    # Load existing values (if any) to use as defaults
+    existing = dotenv_values(config_path) if os.path.exists(config_path) else {}
+
+    if os.path.exists(config_path):
+        click.echo(f"Config exists at {config_path}.")
+        if not click.confirm("Do you want to overwrite it?", default=False):
+            click.echo("Aborted. Existing config left unchanged.")
+            return
+
+    # Ensure directory exists
+    cfg_dir = os.path.dirname(config_path)
+    if cfg_dir and not os.path.exists(cfg_dir):
+        os.makedirs(cfg_dir, exist_ok=True)
+
+    # Prompts with defaults from existing values when available
+    mysql_host = click.prompt("MySQL host", default=existing.get("MYSQL_HOST", "localhost"))
+    mysql_port = click.prompt("MySQL port", default=int(existing.get("MYSQL_PORT", 3306)), type=int)
+    mysql_user = click.prompt("MySQL user", default=existing.get("MYSQL_USER", "root"))
+    mysql_password = click.prompt("MySQL password", hide_input=True, default=existing.get("MYSQL_PASSWORD", ""))
 
     backup_driver = click.prompt(
         "Backup driver (local/s3)",
         type=click.Choice(["local", "s3"], case_sensitive=False),
-        default="local",
+        default=(existing.get("BACKUP_DRIVER", "local") or "local"),
     ).lower()
 
     backup_dir = None
@@ -55,22 +74,23 @@ def _ensure_config_file(config_path: str) -> None:
     aws_secret_access_key = None
 
     if backup_driver == "local":
-        backup_dir = click.prompt("Local backup directory", default="./backups")
+        backup_dir = click.prompt("Local backup directory", default=existing.get("BACKUP_DIR", "./backups"))
     else:
-        s3_bucket = click.prompt("S3 bucket name")
-        s3_path = click.prompt("S3 base path", default="backups")
-        aws_access_key_id = click.prompt("AWS Access Key ID", default="")
-        aws_secret_access_key = click.prompt("AWS Secret Access Key", hide_input=True, default="")
+        s3_bucket = click.prompt("S3 bucket name", default=existing.get("S3_BUCKET", ""))
+        s3_path = click.prompt("S3 base path", default=existing.get("S3_PATH", "backups"))
+        aws_access_key_id = click.prompt("AWS Access Key ID", default=existing.get("AWS_ACCESS_KEY_ID", ""))
+        aws_secret_access_key = click.prompt("AWS Secret Access Key", hide_input=True, default=existing.get("AWS_SECRET_ACCESS_KEY", ""))
 
-    retention_count = click.prompt("Retention count (how many backups to keep)", default=5, type=int)
+    retention_default = int(existing.get("RETENTION_COUNT", 5)) if str(existing.get("RETENTION_COUNT", "")).strip() else 5
+    retention_count = click.prompt("Retention count (how many backups to keep)", default=retention_default, type=int)
 
     # Suggest mysqldump path if found
-    suggested_dump = shutil.which("mysqldump") or "/opt/homebrew/opt/mysql-client/bin/mysqldump"
+    suggested_dump = existing.get("MYSQLDUMP_PATH") or shutil.which("mysqldump") or "/opt/homebrew/opt/mysql-client/bin/mysqldump"
     mysqldump_path = click.prompt("mysqldump path", default=suggested_dump)
 
     excluded_dbs = click.prompt(
         "Excluded databases (comma-separated, besides system DBs)",
-        default="",
+        default=existing.get("EXCLUDED_DATABASES", ""),
     )
 
     # Write .env
@@ -82,7 +102,7 @@ def _ensure_config_file(config_path: str) -> None:
         f"BACKUP_DRIVER={backup_driver}",
         f"RETENTION_COUNT={retention_count}",
         f"MYSQLDUMP_PATH={mysqldump_path}",
-    f"EXCLUDED_DATABASES={excluded_dbs}",
+        f"EXCLUDED_DATABASES={excluded_dbs}",
     ]
     if backup_driver == "local":
         lines.append(f"BACKUP_DIR={backup_dir}")
@@ -211,10 +231,14 @@ def _setup_cron_interactive(config_path: str) -> None:
 @click.option('--mysqldump', 'mysqldump_path', help='Path to mysqldump binary (overrides MYSQLDUMP_PATH).')
 @click.option('--compress/--no-compress', default=True, show_default=True, help='Compress backups with gzip.')
 @click.option('--cron', is_flag=True, help='Interactively set up crontab (default daily at 03:00 and 15:00).')
-def backup_cli(config, retention, storage_type, backup_dir, mysqldump_path, compress, cron):
+@click.option('--init', is_flag=True, help='Interactively create/update the config file and exit.')
+def backup_cli(config, retention, storage_type, backup_dir, mysqldump_path, compress, cron, init):
     # Resolve config path; env var DATABASE_BACKUP_CONFIG can override default
     if not config:
         config = os.getenv("DATABASE_BACKUP_CONFIG") or _default_config_path()
+    if init:
+        _init_config_interactive(config)
+        return
     if cron:
         _setup_cron_interactive(config)
         return

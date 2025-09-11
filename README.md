@@ -19,6 +19,10 @@ db-backup --help
 1. Create/edit config
 
 ```bash
+# Interactive init
+db-backup --init
+
+# or edit the file manually afterward
 nano ~/.config/database-backup/.env
 ```
 
@@ -38,6 +42,7 @@ db-backup --s3      # store on S3
 -   Automatic cleanup of old backups based on a retention policy.
 -   Configuration via a `.env` file.
 -   Command-line interface for easy operation.
+-   Cron setup for automatic backups.
 
 ## Requirements
 
@@ -111,6 +116,7 @@ Options:
 -   `--compress/--no-compress` (default: `--compress`): gzip the dump and keep `.gz`.
 -   `--mysqldump PATH`: override mysqldump path.
 -   `--config FILE`: override config file path.
+-   `--init`: interactively create/update the config file and exit.
 
 You can still run the module directly:
 
@@ -135,6 +141,12 @@ db-backup --cron
 -   It will pass `--config ~/.config/database-backup/.env` by default (or whatever you provide with `--config`).
 
 Helpful: You can use a cron expression generator like [it-tools crontab generator](https://it-tools.tech/crontab-generator) to craft schedules.
+
+You can also initialize your config first:
+
+```bash
+db-backup --init
+```
 
 ## Usage
 
