@@ -118,6 +118,24 @@ You can still run the module directly:
 python -m db_backup --local
 ```
 
+### Cron setup
+
+You can set up cron jobs interactively:
+
+```bash
+db-backup --cron
+```
+
+-   You can enter either:
+    -   A full cron expression (5 fields), e.g. `0 3,15 * * *`
+    -   Or a comma-separated list of 24h times, e.g. `03:00,15:00`
+-   Default schedule: `0 3,15 * * *` (daily at 03:00 and 15:00)
+-   You can choose to force `--local`, `--s3`, or use whatever `BACKUP_DRIVER` is in your `.env` by selecting `config`.
+-   The CLI writes a managed block to your user crontab between `# BEGIN db-backup (managed)` and `# END db-backup (managed)`.
+-   It will pass `--config ~/.config/database-backup/.env` by default (or whatever you provide with `--config`).
+
+Helpful: You can use a cron expression generator like [it-tools crontab generator](https://it-tools.tech/crontab-generator) to craft schedules.
+
 ## Usage
 
 Preferred: run as a module from the project root (this works reliably regardless of relative imports):
@@ -166,56 +184,32 @@ This separation of concerns makes the application more modular, testable, and ma
 All configuration is read from your .env file unless overridden by CLI flags. Defaults are shown where applicable.
 
 -   MYSQL_HOST: MySQL server host.
-
     -   Example: 127.0.0.1
-
 -   MYSQL_PORT: MySQL port. Default: 3306
-
     -   Example: 3306
-
 -   MYSQL_USER: MySQL username with privileges to dump all databases.
-
     -   Example: root
-
 -   MYSQL_PASSWORD: Password for MYSQL_USER.
-
     -   Example: changeme
-
 -   BACKUP_DRIVER: Where to store backups. One of: local, s3
-
     -   Example: local
     -   Note: You can also pass --local or --s3 on the CLI.
-
 -   BACKUP_DIR: Base directory for local backups (used when BACKUP_DRIVER=local or with --local).
-
     -   Example: /Users/alex/backups/databases
-
 -   S3_BUCKET: S3 bucket name (used when BACKUP_DRIVER=s3 or with --s3).
-
     -   Example: my-bucket
-
 -   S3_PATH: Prefix/path inside the bucket to store backups (folders are created per database).
-
     -   Example: backups
-
 -   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: AWS credentials to access the bucket.
-
     -   Example: AWS_ACCESS_KEY_ID=AKIA... / AWS_SECRET_ACCESS_KEY=...
     -   Tip: If using instance/profile or environment credentials, these can be left empty; boto3 will try the default credential chain.
-
 -   RETENTION_COUNT: Number of most recent backups to keep per database. Older ones are removed automatically.
-
     -   Default: 5
     -   Example: 10
-
 -   MYSQLDUMP_PATH: Full path or command name to mysqldump. If not set, the tool tries to resolve mysqldump from PATH.
-
     -   Example (macOS/Homebrew on Apple Silicon): /opt/homebrew/opt/mysql-client/bin/mysqldump
-
 -   EXCLUDED_DATABASES: Comma-separated list of additional databases to skip. System DBs are always excluded: mysql, information_schema, performance_schema, sys.
-
     -   Example: db_1,db_2
-
 -   DATABASE_BACKUP_CONFIG: Optional env var to point the CLI to a different .env file.
     -   Example: /etc/database-backup/.env
 

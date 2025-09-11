@@ -3,6 +3,10 @@ import click
 import os
 import pathlib
 import shutil
+import subprocess
+import sys
+import datetime
+import re
 from dotenv import load_dotenv
 
 # Support running both as a package (relative imports) and as a script (absolute imports)
@@ -95,6 +99,109 @@ def _ensure_config_file(config_path: str) -> None:
     click.echo(f"Created config at {config_path}")
 
 
+def _resolve_executable() -> str:
+    """Find a robust way to run the CLI from cron.
+
+    Prefer the installed console script `db-backup`; fallback to `python -m db_backup`.
+    """
+    exe = shutil.which("db-backup")
+    if exe:
+        return exe
+    py = shutil.which("python") or sys.executable
+    return f"{py} -m db_backup"
+
+
+def _times_to_cron_entries(times: list[str]) -> list[tuple[int, int]]:
+    entries: list[tuple[int, int]] = []
+    for t in times:
+        t = t.strip()
+        if not t:
+            continue
+        if not re.match(r"^\d{2}:\d{2}$", t):
+            raise click.ClickException(f"Invalid time format: '{t}'. Use HH:MM 24h, e.g. 03:00")
+        hh, mm = t.split(":")
+        h = int(hh)
+        m = int(mm)
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise click.ClickException(f"Time out of range: '{t}'")
+        entries.append((m, h))
+    return entries
+
+
+def _install_crontab(lines: list[str]) -> None:
+    """Install or update user's crontab with a managed db-backup block."""
+    # Read existing crontab
+    res = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    existing = res.stdout if res.returncode == 0 else ""
+
+    # Remove existing managed block
+    existing = re.sub(r"(?s)# BEGIN db-backup.*?# END db-backup\s*", "", existing)
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    managed_block = [
+        "# BEGIN db-backup (managed)",
+        f"# Generated on {timestamp}",
+        *lines,
+        "# END db-backup (managed)",
+        "",
+    ]
+    new_cron = existing.rstrip() + "\n" + "\n".join(managed_block)
+
+    apply_res = subprocess.run(["crontab", "-"], input=new_cron, text=True, capture_output=True)
+    if apply_res.returncode != 0:
+        err = apply_res.stderr.strip() or "failed to install crontab"
+        raise click.ClickException(f"Unable to install crontab: {err}")
+
+
+def _is_cron_expression(s: str) -> bool:
+    # Basic 5-field crontab expression detection
+    parts = s.strip().split()
+    return len(parts) == 5
+
+
+def _setup_cron_interactive(config_path: str) -> None:
+    click.echo("Let's set up your cron schedule for db-backup.")
+    # Ensure config exists so cron can use it
+    _ensure_config_file(config_path)
+
+    # Choose storage type
+    storage_choice = click.prompt(
+        "Storage to use (local/s3/config)",
+        type=click.Choice(["local", "s3", "config"], case_sensitive=False),
+        default="config",
+    ).lower()
+
+    # Schedule input: accept a full cron expression or comma-separated HH:MM list
+    schedule_str = click.prompt(
+        "Enter a cron expression (5 fields) or times (24h HH:MM) comma-separated",
+        default="0 3,15 * * *",
+    ).strip()
+
+    cron_lines: list[str] = []
+    if _is_cron_expression(schedule_str):
+        cron_expr = schedule_str
+    else:
+        times = [s.strip() for s in schedule_str.split(",") if s.strip()]
+        cron_pairs = _times_to_cron_entries(times)
+        cron_expr = None  # use pairs instead
+
+    exe = _resolve_executable()
+    # Build command
+    storage_flag = ""
+    if storage_choice in ("local", "s3"):
+        storage_flag = f" --{storage_choice}"
+    cmd = f"{exe} --config \"{config_path}\"{storage_flag}"
+
+    if cron_expr is not None:
+        cron_lines = [f"{cron_expr} {cmd}"]
+    else:
+        cron_lines = [f"{m} {h} * * * {cmd}" for (m, h) in cron_pairs]
+    _install_crontab(cron_lines)
+    click.echo("Cron entries installed:")
+    for ln in cron_lines:
+        click.echo(f"  {ln}")
+
+
 @click.command()
 @click.option('--config', default=None, help='Path to the .env file (defaults to ~/.config/database-backup/.env).')
 @click.option('--retention', type=int, help='Number of backups to retain.')
@@ -103,10 +210,14 @@ def _ensure_config_file(config_path: str) -> None:
 @click.option('--backup-dir', help='Local directory to store backups in.')
 @click.option('--mysqldump', 'mysqldump_path', help='Path to mysqldump binary (overrides MYSQLDUMP_PATH).')
 @click.option('--compress/--no-compress', default=True, show_default=True, help='Compress backups with gzip.')
-def backup_cli(config, retention, storage_type, backup_dir, mysqldump_path, compress):
+@click.option('--cron', is_flag=True, help='Interactively set up crontab (default daily at 03:00 and 15:00).')
+def backup_cli(config, retention, storage_type, backup_dir, mysqldump_path, compress, cron):
     # Resolve config path; env var DATABASE_BACKUP_CONFIG can override default
     if not config:
         config = os.getenv("DATABASE_BACKUP_CONFIG") or _default_config_path()
+    if cron:
+        _setup_cron_interactive(config)
+        return
     _ensure_config_file(config)
     load_dotenv(dotenv_path=config)
 
