@@ -135,26 +135,76 @@ def _times_to_cron_entries(times: list[str]) -> list[tuple[int, int]]:
 
 def _install_crontab(lines: list[str]) -> None:
     """Install or update user's crontab with a managed db-backup block."""
+    # Validate input lines are not empty
+    if not lines:
+        raise click.ClickException("No cron lines to install")
+    
+    # Filter out any empty lines
+    lines = [line.strip() for line in lines if line.strip()]
+    if not lines:
+        raise click.ClickException("No valid cron lines to install")
+    
     # Read existing crontab
     res = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
     existing = res.stdout if res.returncode == 0 else ""
 
-    # Remove existing managed block
+    # Remove only comment markers (if any exist)
     existing = re.sub(r"(?s)# BEGIN db-backup.*?# END db-backup\s*", "", existing)
+    
+    # Clean up existing crontab - remove comment markers but keep all cron entries
+    existing_lines = existing.split('\n') if existing else []
+    filtered_existing = []
+    for line in existing_lines:
+        line_stripped = line.strip()
+        # Skip only comment markers
+        if (line_stripped.startswith('# BEGIN db-backup') or 
+            line_stripped.startswith('# END db-backup') or
+            line_stripped.startswith('# Generated on')):
+            continue
+        # Keep all other lines including existing db-backup cron entries
+        filtered_existing.append(line)
+    
+    existing = '\n'.join(filtered_existing).rstrip()
 
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    managed_block = [
-        "# BEGIN db-backup (managed)",
-        f"# Generated on {timestamp}",
-        *lines,
-        "# END db-backup (managed)",
-        "",
-    ]
-    new_cron = existing.rstrip() + "\n" + "\n".join(managed_block)
+    # Prepare new cron lines to append
+    new_lines = []
+    for line in lines:
+        if line.strip():  # Only add non-empty lines
+            new_lines.append(line)
+
+    # Append new lines to existing crontab (don't replace)
+    if existing:
+        # Check for exact duplicates before appending
+        existing_set = set(existing.split('\n'))
+        lines_to_add = []
+        for line in new_lines:
+            if line not in existing_set:
+                lines_to_add.append(line)
+        
+        if lines_to_add:
+            new_cron = existing + "\n" + "\n".join(lines_to_add)
+        else:
+            new_cron = existing  # No new lines to add
+    else:
+        new_cron = "\n".join(new_lines) if new_lines else ""
+
+    # Validate the final crontab before installing
+    # Check that all non-comment lines have at least 5 fields
+    for line_num, line in enumerate(new_cron.split('\n'), 1):
+        line = line.strip()
+        if line and not line.startswith('#'):
+            parts = line.split()
+            if len(parts) < 5:
+                raise click.ClickException(
+                    f"Invalid crontab line {line_num}: '{line}' (expected at least 5 fields)"
+                )
 
     apply_res = subprocess.run(["crontab", "-"], input=new_cron, text=True, capture_output=True)
     if apply_res.returncode != 0:
         err = apply_res.stderr.strip() or "failed to install crontab"
+        # Show the problematic crontab for debugging
+        click.echo(f"\nCrontab content that failed to install:")
+        click.echo(new_cron)
         raise click.ClickException(f"Unable to install crontab: {err}")
 
 
@@ -201,89 +251,104 @@ def _setup_cron_interactive(config_path: str) -> None:
 
     # Schedule input: accept a full cron expression or comma-separated HH:MM list
     default_schedule = "0 3,15 * * *"
-    try:
-        schedule_input = click.prompt(
-            "Enter a cron expression (5 fields) or times (24h HH:MM) comma-separated",
-            default=default_schedule,
-            show_default=True,
-        )
-    except (KeyboardInterrupt, EOFError):
-        schedule_input = default_schedule
     
-    # Handle empty input - ensure we always have a valid schedule
-    schedule_str = schedule_input.strip() if schedule_input and schedule_input.strip() else default_schedule
-    if not schedule_str or len(schedule_str.split()) == 0:
+    # Get schedule input with proper default handling
+    schedule_input = click.prompt(
+        "Enter a cron expression (5 fields) or times (24h HH:MM) comma-separated",
+        default=default_schedule,
+        show_default=True,
+    )
+    
+    # Normalize the input - handle empty strings, whitespace, etc.
+    if schedule_input:
+        schedule_str = schedule_input.strip()
+    else:
+        schedule_str = default_schedule
+    
+    # If empty after stripping, use default
+    if not schedule_str:
         schedule_str = default_schedule
         click.echo(f"Using default schedule: {default_schedule}")
 
-    cron_lines: list[str] = []
+    # Parse and validate the schedule
     cron_expr = None
     cron_pairs = []
     
-    # Validate and parse the schedule
+    # Check if it's a cron expression (5 fields)
     if _is_cron_expression(schedule_str):
         cron_expr = schedule_str
     else:
+        # Try to parse as time list (HH:MM format)
         times = [s.strip() for s in schedule_str.split(",") if s.strip()]
-        if not times:
-            # If no valid times, use default
-            cron_expr = default_schedule
-        else:
+        if times:
             try:
                 cron_pairs = _times_to_cron_entries(times)
-                if not cron_pairs:
-                    # If parsing failed, use default
-                    cron_expr = default_schedule
             except (click.ClickException, ValueError) as e:
-                # If parsing failed, use default
-                click.echo(f"Warning: Invalid schedule format. Using default: {default_schedule}")
+                click.echo(f"Warning: Invalid time format. Using default: {default_schedule}")
                 cron_expr = default_schedule
+        else:
+            # Empty or invalid, use default
+            cron_expr = default_schedule
 
+    # Build the command
     exe = _resolve_executable()
-    # Build command
     storage_flag = ""
     if storage_choice in ("local", "s3"):
         storage_flag = f" --{storage_choice}"
     cmd = f"{exe} backup --config \"{config_path}\" --connection {connection_name}{storage_flag}"
 
-    # Ensure we have a valid cron expression
-    if cron_expr is not None and cron_expr.strip():
-        # Validate it's a proper cron expression
+    # Generate cron lines - ensure we always have a valid expression
+    cron_lines = []
+    
+    if cron_expr:
+        # Use the cron expression directly
         if _is_cron_expression(cron_expr):
-            cron_lines = [f"{cron_expr} {cmd}"]
+            cron_lines.append(f"{cron_expr} {cmd}")
         else:
-            # Invalid format, use default
-            cron_expr = default_schedule
-            cron_lines = [f"{cron_expr} {cmd}"]
+            # Invalid, use default
+            cron_lines.append(f"{default_schedule} {cmd}")
     elif cron_pairs:
-        cron_lines = [f"{m} {h} * * * {cmd}" for (m, h) in cron_pairs]
+        # Use time pairs to generate cron lines
+        for m, h in cron_pairs:
+            cron_lines.append(f"{m} {h} * * * {cmd}")
     else:
-        # Fallback to default if everything else fails
-        cron_expr = default_schedule
-        cron_lines = [f"{cron_expr} {cmd}"]
+        # Fallback to default
+        cron_lines.append(f"{default_schedule} {cmd}")
     
-    # Final validation - ensure we have valid cron lines
-    if not cron_lines or not all(ln.strip() for ln in cron_lines):
-        click.echo("Error: No valid cron schedule provided. Using default: 0 3,15 * * *")
-        cron_lines = [f"{default_schedule} {cmd}"]
-    
-    # Validate each cron line has proper format (5 fields + command)
+    # Final validation - ensure all lines are valid
     validated_lines = []
     for line in cron_lines:
-        parts = line.split()
-        if len(parts) >= 6:  # 5 cron fields + command (which may have spaces)
-            validated_lines.append(line)
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Split and validate: should have at least 6 parts (5 cron fields + command start)
+        parts = line.split(None, 5)  # Split into max 6 parts
+        if len(parts) >= 6:
+            # Validate the first 5 parts are valid cron fields
+            minute, hour, day, month, weekday = parts[0], parts[1], parts[2], parts[3], parts[4]
+            # Basic validation - ensure they're not empty
+            if all(field.strip() for field in [minute, hour, day, month, weekday]):
+                validated_lines.append(line)
+            else:
+                click.echo(f"Warning: Invalid cron fields in line, using default")
+                validated_lines.append(f"{default_schedule} {cmd}")
         else:
-            click.echo(f"Warning: Invalid cron line format, using default: {line}")
+            click.echo(f"Warning: Invalid cron line format (expected 5 fields + command), using default")
             validated_lines.append(f"{default_schedule} {cmd}")
     
+    # Ensure we have at least one valid line
     if not validated_lines:
         validated_lines = [f"{default_schedule} {cmd}"]
     
-    _install_crontab(validated_lines)
-    click.echo("Cron entries installed:")
+    # Debug: show what will be installed
+    click.echo("\nCron entries to be installed:")
     for ln in validated_lines:
         click.echo(f"  {ln}")
+    click.echo()
+    
+    _install_crontab(validated_lines)
+    click.echo("✓ Cron entries installed successfully!")
 
 
 @click.group()
