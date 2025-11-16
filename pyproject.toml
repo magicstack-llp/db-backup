@@ -1,7 +1,7 @@
 
 [project]
 name = "database-backup"
-version = "0.2.0"
+version = "0.2.1"
 description = "A CLI tool for backing up databases to cloud storage."
 readme = "README.md"
 requires-python = ">=3.10"
