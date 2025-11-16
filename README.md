@@ -14,37 +14,36 @@ pip install --upgrade database-backup
 
 ```
 
-1. See options
+2. Initialize storage configuration
 
 ```bash
-db-backup --help
+# Interactive init (sets up storage/global settings)
+db-backup init
 ```
 
-1. Create/edit config
+3. Add a database connection
 
 ```bash
-# Interactive init
-db-backup --init
-
-# or edit the file manually afterward
-nano ~/.config/database-backup/.env
+# Add your first database connection
+db-backup add --name production --host 127.0.0.1 --user root
 ```
 
-1. Run
+4. Run backup
 
 ```bash
-db-backup --local   # store on filesystem
-db-backup --s3      # store on S3
+db-backup backup --connection production --local   # store on filesystem
+db-backup backup --connection production --s3        # store on S3
 ```
 
 ## Features
 
+-   **Multiple database connections**: Manage multiple database connections with separate JSON storage.
 -   Back up all MySQL databases, excluding system databases.
 -   Store backups in a local directory or an AWS S3 bucket.
 -   Create a separate folder for each database.
 -   Timestamped backups for easy identification.
 -   Automatic cleanup of old backups based on a retention policy.
--   Configuration via a `.env` file.
+-   Configuration via `.env` file (storage/global settings) and `connections.json` (database connections).
 -   Command-line interface for easy operation.
 -   Cron setup for automatic backups.
 
@@ -108,50 +107,102 @@ pip install -r requirements.txt
 
 ## Configuration
 
-By default, the CLI loads config from:
+The tool uses two separate configuration files:
 
--   macOS/Linux: `~/.config/database-backup/.env` (or `${XDG_CONFIG_HOME}/database-backup/.env`)
+1. **`.env` file**: Stores storage and global settings (S3 credentials, backup directory, retention count, etc.)
+   - Default location: `~/.config/database-backup/.env` (or `${XDG_CONFIG_HOME}/database-backup/.env`)
+   - Override with `--config` or `DATABASE_BACKUP_CONFIG` env var
 
-Override with `--config` or `DATABASE_BACKUP_CONFIG` env.
+2. **`connections.json` file**: Stores database connection details (host, port, user, password, etc.)
+   - Default location: `~/.config/database-backup/connections.json`
+   - Managed via CLI commands: `add`, `remove`, `list`
 
-Example `.env`:
+### Storage Configuration (.env)
+
+Example `.env` (storage/global settings only):
 
 ```env
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-MYSQL_USER=root
-MYSQL_PASSWORD=password
+BACKUP_DRIVER=local  # local, s3
 BACKUP_DIR=/Users/<USER>/backups/databases
-## CLI usage
+RETENTION_COUNT=5
 S3_BUCKET=mybucket
 S3_PATH=backups
 AWS_ACCESS_KEY_ID=XXXXXXX
 AWS_SECRET_ACCESS_KEY=YYYYYYY
-RETENTION_COUNT=5
-MYSQLDUMP_PATH=/opt/homebrew/opt/mysql-client/bin/mysqldump
-BACKUP_DRIVER=local # local, s3
-EXCLUDED_DATABASES=db_1,db_2
 ```
 
-After installation as a package, use the short command:
+### Connection Management
+
+Database connections are stored separately in JSON format. Use these commands:
+
+-   `db-backup add`: Add a new database connection
+-   `db-backup remove`: Remove a database connection
+-   `db-backup list`: List all database connections
+
+Example `connections.json`:
+
+```json
+{
+  "production": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "password",
+    "mysqldump_path": "/opt/homebrew/opt/mysql-client/bin/mysqldump",
+    "excluded_databases": ["db_1", "db_2"],
+    "storage_driver": "local",
+    "path": "/backups/production"
+  },
+  "staging": {
+    "host": "192.168.1.100",
+    "port": 3306,
+    "user": "backup_user",
+    "password": "secure_password",
+    "mysqldump_path": "/usr/bin/mysqldump",
+    "excluded_databases": [],
+    "storage_driver": "s3",
+    "s3_bucket": "my-backup-bucket",
+    "path": "staging"
+  }
+}
+```
+
+### Connection Management Commands
+
+#### Add a connection
 
 ```bash
-db-backup --local
-# or
-database-backup --s3
+db-backup add --name production --host 127.0.0.1 --port 3306 --user root --password mypass
+```
+
+Or interactively:
+
+```bash
+db-backup add
 ```
 
 Options:
+-   `--name`: Connection name (required)
+-   `--host`: MySQL server host (default: localhost)
+-   `--port`: MySQL server port (default: 3306)
+-   `--user`: MySQL username (default: root)
+-   `--password`: MySQL password (will prompt if not provided)
+-   `--mysqldump`: Path to mysqldump binary
+-   `--excluded`: Comma-separated list of databases to exclude
+-   `--storage-driver`: Preferred storage driver for this connection (local/s3)
+-   `--path`: Storage path - backup directory for local storage or S3 path prefix (overrides .env)
+-   `--s3-bucket`: Preferred S3 bucket for this connection (overrides .env)
 
--   `--compress/--no-compress` (default: `--compress`): gzip the dump and keep `.gz`.
--   `--mysqldump PATH`: override mysqldump path.
--   `--config FILE`: override config file path.
--   `--init`: interactively create/update the config file and exit.
-
-You can still run the module directly:
+#### Remove a connection
 
 ```bash
-python -m db_backup --local
+db-backup remove --name production
+```
+
+#### List connections
+
+```bash
+db-backup list
 ```
 
 ### Cron setup
@@ -159,55 +210,59 @@ python -m db_backup --local
 You can set up cron jobs interactively:
 
 ```bash
-db-backup --cron
+db-backup cron
 ```
 
 -   You can enter either:
     -   A full cron expression (5 fields), e.g. `0 3,15 * * *`
     -   Or a comma-separated list of 24h times, e.g. `03:00,15:00`
 -   Default schedule: `0 3,15 * * *` (daily at 03:00 and 15:00)
--   You can choose to force `--local`, `--s3`, or use whatever `BACKUP_DRIVER` is in your `.env` by selecting `config`.
+-   You'll be prompted to select a connection and storage type
 -   The CLI writes a managed block to your user crontab between `# BEGIN db-backup (managed)` and `# END db-backup (managed)`.
 -   It will pass `--config ~/.config/database-backup/.env` by default (or whatever you provide with `--config`).
 
 Helpful: You can use a cron expression generator like [it-tools crontab generator](https://it-tools.tech/crontab-generator) to craft schedules.
 
-You can also initialize your config first:
-
-```bash
-db-backup --init
-```
-
 ## Usage
 
-Preferred: run as a module from the project root (this works reliably regardless of relative imports):
+### Basic backup
 
 ```bash
-python -m db_backup --config .env --local
+# Backup using a specific connection
+db-backup backup --connection production --local
+
+# If only one connection exists, it will be used automatically
+db-backup backup --local
+
+# If multiple connections exist, you'll be prompted to select one
+db-backup backup --local
 ```
 
-Or run the script directly (works after the import fallback fix):
+### Backup options
+
+-   `--connection NAME`: Specify which connection to use (required if multiple connections exist)
+-   `--local`: Store backups locally
+-   `--s3`: Store backups in S3
+-   `--retention N`: Number of backups to retain (overrides .env)
+-   `--backup-dir PATH`: Local backup directory (overrides .env)
+-   `--mysqldump PATH`: Path to mysqldump binary (overrides connection setting)
+-   `--compress/--no-compress`: Compress backups with gzip (default: compress)
+-   `--config FILE`: Override .env config file path
+
+### Examples
 
 ```bash
-python db_backup/main.py --config .env --local
-```
+# Local backup with specific connection
+db-backup backup --connection production --local
 
-You can override `mysqldump` path via CLI:
+# S3 backup
+db-backup backup --connection staging --s3
 
-```bash
-python -m db_backup --config .env --local --mysqldump /opt/homebrew/opt/mysql-client/bin/mysqldump
-```
+# Override retention count
+db-backup backup --connection production --local --retention 10
 
-To store your backups in an S3 bucket:
-
-```bash
-python -m db_backup --config .env --s3
-```
-
-You can also override the retention count and backup directory using the command-line options:
-
-```bash
-python -m db_backup --config .env --retention 10 --local --backup-dir /path/to/backups
+# Custom backup directory
+db-backup backup --connection production --local --backup-dir /custom/path
 ```
 
 ## Architecture
@@ -221,52 +276,103 @@ The database backup tool is built using a Clean Architecture approach, which sep
 
 This separation of concerns makes the application more modular, testable, and maintainable.
 
-## Environment variables reference
+## Configuration Reference
 
-All configuration is read from your .env file unless overridden by CLI flags. Defaults are shown where applicable.
+### .env File (Storage/Global Settings)
 
--   MYSQL_HOST: MySQL server host.
-    -   Example: 127.0.0.1
--   MYSQL_PORT: MySQL port. Default: 3306
-    -   Example: 3306
--   MYSQL_USER: MySQL username with privileges to dump all databases.
-    -   Example: root
--   MYSQL_PASSWORD: Password for MYSQL_USER.
-    -   Example: changeme
--   BACKUP_DRIVER: Where to store backups. One of: local, s3
-    -   Example: local
-    -   Note: You can also pass --local or --s3 on the CLI.
--   BACKUP_DIR: Base directory for local backups (used when BACKUP_DRIVER=local or with --local).
-    -   Example: /Users/alex/backups/databases
--   S3_BUCKET: S3 bucket name (used when BACKUP_DRIVER=s3 or with --s3).
-    -   Example: my-bucket
--   S3_PATH: Prefix/path inside the bucket to store backups (folders are created per database).
-    -   Example: backups
--   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: AWS credentials to access the bucket.
-    -   Example: AWS_ACCESS_KEY_ID=AKIA... / AWS_SECRET_ACCESS_KEY=...
+All storage and global settings are read from your .env file unless overridden by CLI flags. Defaults are shown where applicable.
+
+-   **BACKUP_DRIVER**: Where to store backups. One of: `local`, `s3`
+    -   Example: `local`
+    -   Note: You can also pass `--local` or `--s3` on the CLI.
+-   **BACKUP_DIR**: Base directory for local backups (used when BACKUP_DRIVER=local or with --local).
+    -   Example: `/Users/alex/backups/databases`
+-   **S3_BUCKET**: S3 bucket name (used when BACKUP_DRIVER=s3 or with --s3).
+    -   Example: `my-bucket`
+-   **S3_PATH**: Prefix/path inside the bucket to store backups (folders are created per database).
+    -   Example: `backups`
+-   **AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY**: AWS credentials to access the bucket.
+    -   Example: `AWS_ACCESS_KEY_ID=AKIA...` / `AWS_SECRET_ACCESS_KEY=...`
     -   Tip: If using instance/profile or environment credentials, these can be left empty; boto3 will try the default credential chain.
--   RETENTION_COUNT: Number of most recent backups to keep per database. Older ones are removed automatically.
-    -   Default: 5
-    -   Example: 10
--   MYSQLDUMP_PATH: Full path or command name to mysqldump. If not set, the tool tries to resolve mysqldump from PATH.
-    -   Example (macOS/Homebrew on Apple Silicon): /opt/homebrew/opt/mysql-client/bin/mysqldump
--   EXCLUDED_DATABASES: Comma-separated list of additional databases to skip. System DBs are always excluded: mysql, information_schema, performance_schema, sys.
-    -   Example: db_1,db_2
--   DATABASE_BACKUP_CONFIG: Optional env var to point the CLI to a different .env file.
-    -   Example: /etc/database-backup/.env
+-   **RETENTION_COUNT**: Number of most recent backups to keep per database. Older ones are removed automatically.
+    -   Default: `5`
+    -   Example: `10`
+-   **DATABASE_BACKUP_CONFIG**: Optional env var to point the CLI to a different .env file.
+    -   Example: `/etc/database-backup/.env`
+
+### connections.json (Database Connections)
+
+Database connections are stored in JSON format. Each connection includes:
+
+-   **host**: MySQL server host
+    -   Example: `127.0.0.1`
+-   **port**: MySQL server port
+    -   Default: `3306`
+-   **user**: MySQL username with privileges to dump all databases
+    -   Example: `root`
+-   **password**: Password for the MySQL user
+    -   Example: `changeme`
+-   **mysqldump_path**: Full path or command name to mysqldump (optional)
+    -   Example (macOS/Homebrew on Apple Silicon): `/opt/homebrew/opt/mysql-client/bin/mysqldump`
+    -   If not set, the tool tries to resolve mysqldump from PATH
+-   **excluded_databases**: List of additional databases to skip (optional)
+    -   Example: `["db_1", "db_2"]`
+    -   Note: System DBs are always excluded: `mysql`, `information_schema`, `performance_schema`, `sys`
+-   **storage_driver**: Preferred storage driver for this connection (optional)
+    -   Values: `local` or `s3`
+    -   If not set, uses CLI flag (`--local`/`--s3`) or falls back to `BACKUP_DRIVER` from .env
+-   **path**: Storage path - backup directory for local storage or S3 path prefix (optional)
+    -   For local storage: Example `/backups/production`
+    -   For S3 storage: Example `production/backups`
+    -   Priority: CLI `--backup-dir` (for local) > connection `path` > `.env` `BACKUP_DIR` or `S3_PATH`
+-   **s3_bucket**: Preferred S3 bucket for this connection (optional)
+    -   Example: `my-backup-bucket`
+    -   Used when `storage_driver` is `s3`
+    -   Priority: connection `s3_bucket` > `.env` `S3_BUCKET`
 
 ## Examples
 
--   Local backup with custom mysqldump and retention:
+### Connection Management
 
 ```bash
-db-backup --local --mysqldump /opt/homebrew/opt/mysql-client/bin/mysqldump --retention 10
+# Add a production database connection with local storage preference
+db-backup add --name production --host db.example.com --user backup_user --password secure_pass \
+  --storage-driver local --path /backups/production
+
+# Add a staging connection with S3 storage preference
+db-backup add --name staging --host staging.db.example.com --user backup_user --password secure_pass \
+  --storage-driver s3 --s3-bucket my-backup-bucket --path staging
+
+# Add a connection without storage preferences (will use .env or CLI flags)
+db-backup add --name dev --host localhost --user root --password devpass
+
+# List all connections (shows storage preferences)
+db-backup list
+
+# Remove a connection
+db-backup remove --name dev
 ```
 
--   S3 backup using settings from .env:
+### Running Backups
 
 ```bash
-db-backup --s3
+# Backup using connection's preferred storage (if set)
+db-backup backup --connection production
+
+# Backup production database to local storage (overrides connection preference)
+db-backup backup --connection production --local
+
+# Backup staging database to S3 (overrides connection preference)
+db-backup backup --connection staging --s3
+
+# Backup with custom retention
+db-backup backup --connection production --retention 10
+
+# Backup with custom backup directory (overrides connection preference)
+db-backup backup --connection production --local --backup-dir /custom/backup/path
+
+# Backup with custom mysqldump path
+db-backup backup --connection production --mysqldump /custom/path/mysqldump
 ```
 
 ## Upcoming Features
