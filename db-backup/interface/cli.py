@@ -413,6 +413,30 @@ def backup(config, connection_name, retention, storage_type, backup_dir, mysqldu
     effective_mysqldump = mysqldump_path or conn_data.get("mysqldump_path") or os.getenv("MYSQLDUMP_PATH")
     excluded_list = conn_data.get("excluded_databases", [])
     
+    # Extract SSH configuration
+    ssh_host = conn_data.get("ssh_host")
+    ssh_port = conn_data.get("ssh_port")
+    ssh_user = conn_data.get("ssh_user")
+    ssh_key_path = conn_data.get("ssh_key_path")
+    bastion_host = conn_data.get("bastion_host")
+    bastion_port = conn_data.get("bastion_port")
+    bastion_user = conn_data.get("bastion_user")
+    bastion_key_path = conn_data.get("bastion_key_path")
+    
+    # Check if SSH is configured but paramiko is not available
+    if ssh_host and ssh_user and ssh_key_path:
+        try:
+            import paramiko  # type: ignore
+        except ImportError:
+            click.echo("Error: This connection requires SSH tunneling, but 'paramiko' is not installed.", err=True)
+            click.echo("", err=True)
+            click.echo("To fix this, install paramiko:", err=True)
+            click.echo("  pip install paramiko", err=True)
+            click.echo("", err=True)
+            click.echo("Or install all dependencies:", err=True)
+            click.echo("  pip install -e .", err=True)
+            return
+    
     db_gateway = DatabaseGateway(
         mysql_host,
         mysql_port,
@@ -420,6 +444,14 @@ def backup(config, connection_name, retention, storage_type, backup_dir, mysqldu
         mysql_password,
         mysqldump_path=effective_mysqldump,
         excluded_databases=excluded_list,
+        ssh_host=ssh_host,
+        ssh_port=ssh_port,
+        ssh_user=ssh_user,
+        ssh_key_path=ssh_key_path,
+        bastion_host=bastion_host,
+        bastion_port=bastion_port,
+        bastion_user=bastion_user,
+        bastion_key_path=bastion_key_path
     )
 
     # Determine storage type with priority: CLI flag > connection setting > .env
@@ -442,7 +474,10 @@ def backup(config, connection_name, retention, storage_type, backup_dir, mysqldu
             return
         storage_gateway = StorageGateway(backup_dir=effective_backup_dir)
         use_case = BackupUseCase(db_gateway, storage_gateway)
-        use_case.execute(retention_count, backup_dir=effective_backup_dir, compress=compress)
+        try:
+            use_case.execute(retention_count, backup_dir=effective_backup_dir, compress=compress)
+        finally:
+            db_gateway.close()
     elif storage_type == 's3':
         # Priority: connection setting > .env
         effective_s3_bucket = conn_data.get("s3_bucket") or os.getenv("S3_BUCKET")
@@ -461,7 +496,10 @@ def backup(config, connection_name, retention, storage_type, backup_dir, mysqldu
             aws_secret_access_key=aws_secret_access_key
         )
         use_case = BackupUseCase(db_gateway, storage_gateway)
-        use_case.execute(retention_count, s3_bucket=effective_s3_bucket, s3_path=effective_s3_path, compress=compress)
+        try:
+            use_case.execute(retention_count, s3_bucket=effective_s3_bucket, s3_path=effective_s3_path, compress=compress)
+        finally:
+            db_gateway.close()
     else:
         click.echo("Please specify a storage type: --local or --s3, set storage_driver in connection, or set BACKUP_DRIVER in .env")
 
@@ -477,7 +515,16 @@ def backup(config, connection_name, retention, storage_type, backup_dir, mysqldu
 @click.option('--storage-driver', type=click.Choice(['local', 's3'], case_sensitive=False), help='Preferred storage driver for this connection (local/s3).')
 @click.option('--path', help='Storage path: backup directory for local storage or S3 path prefix (overrides .env).')
 @click.option('--s3-bucket', help='Preferred S3 bucket for this connection (overrides .env).')
-def add(name, host, port, user, password, mysqldump_path, excluded, storage_driver, path, s3_bucket):
+@click.option('--ssh-host', help='SSH hostname for tunnel (if database is behind SSH).')
+@click.option('--ssh-port', type=int, default=22, help='SSH port (default: 22).')
+@click.option('--ssh-user', help='SSH username for tunnel.')
+@click.option('--ssh-key-path', help='Path to SSH private key file.')
+@click.option('--bastion-host', help='Bastion host for double-hop SSH (optional).')
+@click.option('--bastion-port', type=int, default=22, help='Bastion SSH port (default: 22).')
+@click.option('--bastion-user', help='Bastion SSH username (optional, uses ssh-user if not provided).')
+@click.option('--bastion-key-path', help='Bastion SSH key path (optional, uses ssh-key-path if not provided).')
+def add(name, host, port, user, password, mysqldump_path, excluded, storage_driver, path, s3_bucket,
+        ssh_host, ssh_port, ssh_user, ssh_key_path, bastion_host, bastion_port, bastion_user, bastion_key_path):
     """Add a new database connection."""
     conn_manager = ConnectionManager()
     
@@ -571,6 +618,34 @@ def add(name, host, port, user, password, mysqldump_path, excluded, storage_driv
                 if not s3_bucket.strip():
                     s3_bucket = None
         
+        # Handle SSH configuration
+        if ssh_host is None and existing.get("ssh_host"):
+            if not click.confirm("Keep existing SSH configuration?", default=True):
+                ssh_host = click.prompt("SSH host (leave empty to disable)", default="", show_default=False)
+                if not ssh_host.strip():
+                    ssh_host = None
+                else:
+                    ssh_user = ssh_user or click.prompt("SSH user", default=existing.get("ssh_user", ""))
+                    ssh_key_path = ssh_key_path or click.prompt("SSH key path", default=existing.get("ssh_key_path", ""))
+                    if not ssh_key_path.strip():
+                        ssh_key_path = None
+            else:
+                ssh_host = existing.get("ssh_host")
+                ssh_port = existing.get("ssh_port") or 22
+                ssh_user = existing.get("ssh_user")
+                ssh_key_path = existing.get("ssh_key_path")
+                bastion_host = existing.get("bastion_host")
+                bastion_port = existing.get("bastion_port")
+                bastion_user = existing.get("bastion_user")
+                bastion_key_path = existing.get("bastion_key_path")
+        elif ssh_host:
+            if not ssh_user:
+                ssh_user = click.prompt("SSH user", default=existing.get("ssh_user", ""))
+            if not ssh_key_path:
+                ssh_key_path = click.prompt("SSH key path", default=existing.get("ssh_key_path", ""))
+                if not ssh_key_path.strip():
+                    ssh_key_path = None
+        
         success = conn_manager.update_connection(
             name=name,
             host=host,
@@ -581,7 +656,15 @@ def add(name, host, port, user, password, mysqldump_path, excluded, storage_driv
             excluded_databases=excluded_list,
             storage_driver=storage_driver,
             path=path,
-            s3_bucket=s3_bucket
+            s3_bucket=s3_bucket,
+            ssh_host=ssh_host,
+            ssh_port=ssh_port,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key_path,
+            bastion_host=bastion_host,
+            bastion_port=bastion_port,
+            bastion_user=bastion_user,
+            bastion_key_path=bastion_key_path
         )
         if success:
             click.echo(f"Connection '{name}' updated successfully.")
@@ -638,6 +721,29 @@ def add(name, host, port, user, password, mysqldump_path, excluded, storage_driv
                 if not path.strip():
                     path = None
     
+    # Handle SSH configuration for new connections
+    if ssh_host:
+        if not ssh_user:
+            ssh_user = click.prompt("SSH user")
+        if not ssh_key_path:
+            ssh_key_path = click.prompt("SSH key path")
+            if not ssh_key_path.strip():
+                ssh_key_path = None
+        if bastion_host and not bastion_user:
+            bastion_user = click.prompt("Bastion SSH user", default=ssh_user)
+        if bastion_host and not bastion_key_path:
+            bastion_key_path = click.prompt("Bastion SSH key path", default=ssh_key_path)
+    elif click.confirm("Do you want to configure SSH tunnel for this connection?", default=False):
+        ssh_host = click.prompt("SSH host")
+        ssh_port = click.prompt("SSH port", default=22, type=int)
+        ssh_user = click.prompt("SSH user")
+        ssh_key_path = click.prompt("SSH key path")
+        if click.confirm("Use bastion host (double-hop SSH)?", default=False):
+            bastion_host = click.prompt("Bastion host")
+            bastion_port = click.prompt("Bastion port", default=22, type=int)
+            bastion_user = click.prompt("Bastion SSH user", default=ssh_user)
+            bastion_key_path = click.prompt("Bastion SSH key path", default=ssh_key_path)
+    
     success = conn_manager.add_connection(
         name=name,
         host=host,
@@ -648,7 +754,15 @@ def add(name, host, port, user, password, mysqldump_path, excluded, storage_driv
         excluded_databases=excluded_list,
         storage_driver=storage_driver,
         path=path,
-        s3_bucket=s3_bucket
+        s3_bucket=s3_bucket,
+        ssh_host=ssh_host,
+        ssh_port=ssh_port,
+        ssh_user=ssh_user,
+        ssh_key_path=ssh_key_path,
+        bastion_host=bastion_host,
+        bastion_port=bastion_port,
+        bastion_user=bastion_user,
+        bastion_key_path=bastion_key_path
     )
     
     if success:

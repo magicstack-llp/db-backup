@@ -54,6 +54,7 @@ db-backup backup --connection production --s3        # store on S3
 -   `boto3`
 -   `python-dotenv`
 -   `click`
+-   `paramiko` (for SSH tunnel support)
 -   MySQL client tools (provides `mysqldump`)
 
     On macOS (Homebrew):
@@ -163,6 +164,35 @@ Example `connections.json`:
     "storage_driver": "s3",
     "s3_bucket": "my-backup-bucket",
     "path": "staging"
+  },
+  "remote_ssh": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "password",
+    "ssh_host": "db.example.com",
+    "ssh_port": 22,
+    "ssh_user": "backup_user",
+    "ssh_key_path": "/home/user/.ssh/id_rsa",
+    "storage_driver": "local",
+    "path": "/backups/remote"
+  },
+  "bastion_ssh": {
+    "host": "127.0.0.1",
+    "port": 3306,
+    "user": "root",
+    "password": "password",
+    "ssh_host": "internal-db.example.com",
+    "ssh_port": 22,
+    "ssh_user": "backup_user",
+    "ssh_key_path": "/home/user/.ssh/id_rsa",
+    "bastion_host": "bastion.example.com",
+    "bastion_port": 22,
+    "bastion_user": "bastion_user",
+    "bastion_key_path": "/home/user/.ssh/bastion_key",
+    "storage_driver": "s3",
+    "s3_bucket": "my-backup-bucket",
+    "path": "bastion"
   }
 }
 ```
@@ -192,6 +222,14 @@ Options:
 -   `--storage-driver`: Preferred storage driver for this connection (local/s3)
 -   `--path`: Storage path - backup directory for local storage or S3 path prefix (overrides .env)
 -   `--s3-bucket`: Preferred S3 bucket for this connection (overrides .env)
+-   `--ssh-host`: SSH hostname for tunnel (if database is behind SSH)
+-   `--ssh-port`: SSH port (default: 22)
+-   `--ssh-user`: SSH username for tunnel
+-   `--ssh-key-path`: Path to SSH private key file
+-   `--bastion-host`: Bastion host for double-hop SSH (optional)
+-   `--bastion-port`: Bastion SSH port (default: 22)
+-   `--bastion-user`: Bastion SSH username (optional, uses ssh-user if not provided)
+-   `--bastion-key-path`: Bastion SSH key path (optional, uses ssh-key-path if not provided)
 
 #### Remove a connection
 
@@ -329,6 +367,29 @@ Database connections are stored in JSON format. Each connection includes:
     -   Example: `my-backup-bucket`
     -   Used when `storage_driver` is `s3`
     -   Priority: connection `s3_bucket` > `.env` `S3_BUCKET`
+-   **ssh_host**: SSH hostname for tunnel (optional)
+    -   Example: `db.example.com`
+    -   Required if database is behind SSH
+-   **ssh_port**: SSH port (optional, default: 22)
+    -   Example: `22`
+-   **ssh_user**: SSH username for tunnel (optional)
+    -   Example: `backup_user`
+    -   Required if `ssh_host` is set
+-   **ssh_key_path**: Path to SSH private key file (optional)
+    -   Example: `/home/user/.ssh/id_rsa`
+    -   Required if `ssh_host` is set
+    -   Supports RSA, ECDSA, Ed25519, and DSS keys
+-   **bastion_host**: Bastion host for double-hop SSH (optional)
+    -   Example: `bastion.example.com`
+    -   Used when database requires SSH through a bastion host
+-   **bastion_port**: Bastion SSH port (optional, default: 22)
+    -   Example: `22`
+-   **bastion_user**: Bastion SSH username (optional)
+    -   Example: `bastion_user`
+    -   Defaults to `ssh_user` if not provided
+-   **bastion_key_path**: Bastion SSH key path (optional)
+    -   Example: `/home/user/.ssh/bastion_key`
+    -   Defaults to `ssh_key_path` if not provided
 
 ## Examples
 
@@ -345,6 +406,15 @@ db-backup add --name staging --host staging.db.example.com --user backup_user --
 
 # Add a connection without storage preferences (will use .env or CLI flags)
 db-backup add --name dev --host localhost --user root --password devpass
+
+# Add a connection with simple SSH tunnel
+db-backup add --name remote --host 127.0.0.1 --port 3306 --user root --password pass \
+  --ssh-host db.example.com --ssh-user backup_user --ssh-key-path ~/.ssh/id_rsa
+
+# Add a connection with bastion host (double-hop SSH)
+db-backup add --name bastion --host 127.0.0.1 --port 3306 --user root --password pass \
+  --ssh-host internal-db.example.com --ssh-user backup_user --ssh-key-path ~/.ssh/id_rsa \
+  --bastion-host bastion.example.com --bastion-user bastion_user --bastion-key-path ~/.ssh/bastion_key
 
 # List all connections (shows storage preferences)
 db-backup list
@@ -375,13 +445,58 @@ db-backup backup --connection production --local --backup-dir /custom/backup/pat
 db-backup backup --connection production --mysqldump /custom/path/mysqldump
 ```
 
+## SSH Tunnel Support
+
+The tool supports connecting to MySQL databases through SSH tunnels, including:
+
+### Simple SSH Tunnel
+
+For databases accessible via a single SSH hop:
+
+```bash
+db-backup add --name remote --host 127.0.0.1 --port 3306 --user root --password pass \
+  --ssh-host db.example.com --ssh-user backup_user --ssh-key-path ~/.ssh/id_rsa
+```
+
+In this configuration:
+- `--host` and `--port` refer to the MySQL server as seen from the SSH host (typically `127.0.0.1:3306`)
+- `--ssh-host` is the SSH server that can reach the MySQL server
+- `--ssh-user` and `--ssh-key-path` are used to authenticate to the SSH server
+
+### SSH with Bastion Host
+
+For databases requiring a double-hop SSH connection (through a bastion host):
+
+```bash
+db-backup add --name bastion --host 127.0.0.1 --port 3306 --user root --password pass \
+  --ssh-host internal-db.example.com --ssh-user backup_user --ssh-key-path ~/.ssh/id_rsa \
+  --bastion-host bastion.example.com --bastion-user bastion_user --bastion-key-path ~/.ssh/bastion_key
+```
+
+In this configuration:
+- First SSH connection is made to the bastion host
+- Second SSH connection is made through the bastion to the target SSH host
+- MySQL connection is then tunneled through both SSH connections
+
+### SSH Key Requirements
+
+- SSH keys must be in a format supported by paramiko (RSA, ECDSA, Ed25519, or DSS)
+- Key files should have appropriate permissions (typically `600`)
+- The SSH user must have access to the MySQL server on the remote host
+
+### How It Works
+
+1. When a backup is initiated with SSH configuration, the tool establishes an SSH tunnel
+2. A local port is opened that forwards to the remote MySQL server
+3. All MySQL connections (both for listing databases and running mysqldump) use the local tunnel port
+4. The tunnel is automatically cleaned up after the backup completes
+
 ## Upcoming Features
 
 -   Web UI Mangement Server
 -   Multiple connections with SQLite
 -   Postgres Support
 -   Mongodb Support
--   Remote Connection Support with SSH and bastion host
 -   Independent Docker Container
 -   Backup history and management
 -   Restore Database MySQL, Postgres, MongoDB CLI and UI

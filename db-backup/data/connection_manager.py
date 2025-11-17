@@ -48,7 +48,15 @@ class ConnectionManager:
                       excluded_databases: Optional[List[str]] = None,
                       storage_driver: Optional[str] = None,
                       path: Optional[str] = None,
-                      s3_bucket: Optional[str] = None) -> bool:
+                      s3_bucket: Optional[str] = None,
+                      ssh_host: Optional[str] = None,
+                      ssh_port: Optional[int] = None,
+                      ssh_user: Optional[str] = None,
+                      ssh_key_path: Optional[str] = None,
+                      bastion_host: Optional[str] = None,
+                      bastion_port: Optional[int] = None,
+                      bastion_user: Optional[str] = None,
+                      bastion_key_path: Optional[str] = None) -> bool:
         """Add a new connection."""
         connections = self._load_connections()
         
@@ -64,7 +72,15 @@ class ConnectionManager:
             "excluded_databases": excluded_databases or [],
             "storage_driver": storage_driver,
             "path": path,
-            "s3_bucket": s3_bucket
+            "s3_bucket": s3_bucket,
+            "ssh_host": ssh_host,
+            "ssh_port": ssh_port,
+            "ssh_user": ssh_user,
+            "ssh_key_path": ssh_key_path,
+            "bastion_host": bastion_host,
+            "bastion_port": bastion_port,
+            "bastion_user": bastion_user,
+            "bastion_key_path": bastion_key_path
         }
         
         self._save_connections(connections)
@@ -102,7 +118,15 @@ class ConnectionManager:
                           excluded_databases: Optional[List[str]] = None,
                           storage_driver: Optional[str] = None,
                           path: Optional[str] = None,
-                          s3_bucket: Optional[str] = None) -> bool:
+                          s3_bucket: Optional[str] = None,
+                          ssh_host: Optional[str] = None,
+                          ssh_port: Optional[int] = None,
+                          ssh_user: Optional[str] = None,
+                          ssh_key_path: Optional[str] = None,
+                          bastion_host: Optional[str] = None,
+                          bastion_port: Optional[int] = None,
+                          bastion_user: Optional[str] = None,
+                          bastion_key_path: Optional[str] = None) -> bool:
         """Update an existing connection."""
         connections = self._load_connections()
         
@@ -128,6 +152,22 @@ class ConnectionManager:
             conn["path"] = path
         if s3_bucket is not None:
             conn["s3_bucket"] = s3_bucket
+        if ssh_host is not None:
+            conn["ssh_host"] = ssh_host
+        if ssh_port is not None:
+            conn["ssh_port"] = ssh_port
+        if ssh_user is not None:
+            conn["ssh_user"] = ssh_user
+        if ssh_key_path is not None:
+            conn["ssh_key_path"] = ssh_key_path
+        if bastion_host is not None:
+            conn["bastion_host"] = bastion_host
+        if bastion_port is not None:
+            conn["bastion_port"] = bastion_port
+        if bastion_user is not None:
+            conn["bastion_user"] = bastion_user
+        if bastion_key_path is not None:
+            conn["bastion_key_path"] = bastion_key_path
         
         self._save_connections(connections)
         return True
