@@ -27,6 +27,8 @@ jobs:
             artifact_name: db-backup-macos-x86_64
 
     runs-on: ${{ matrix.os }}
+    permissions:
+        contents: write
 
     steps:
       - uses: actions/checkout@v4
