@@ -18,62 +18,142 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
-            artifact_name: db-backup-linux-x86_64
+            arch: x86_64
+            runner_arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+            runner_arch: x64
+            use_docker: true
           - os: windows-latest
             platform: win
-            artifact_name: db-backup-windows-x86_64.exe
+            arch: x86_64
+            runner_arch: x64
+          - os: windows-latest
+            platform: win
+            arch: arm64
+            runner_arch: x64
           - os: macos-latest
             platform: macos
-            artifact_name: db-backup-macos-x86_64
+            arch: x86_64
+            runner_arch: x64
+          - os: macos-latest
+            platform: macos
+            arch: arm64
+            runner_arch: arm64
 
     runs-on: ${{ matrix.os }}
     permissions:
-        contents: write
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
+      - name: Set up QEMU (Linux ARM64)
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx (Linux ARM64)
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Linux ARM64 in Docker
+        if: matrix.platform == 'linux' && matrix.arch == 'arm64'
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            -f Dockerfile.arm64 \
+            -t db-backup-builder:arm64 \
+            .
+          docker create --name db-backup-container db-backup-builder:arm64
+          docker cp db-backup-container:/src/dist ./dist
+          docker rm db-backup-container
+
+      - name: Install uv (Native builds)
+        if: matrix.platform != 'linux' || matrix.arch != 'arm64'
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
 
-      - name: Set up Python
+      - name: Set up Python (Native builds)
+        if: matrix.platform != 'linux' || matrix.arch != 'arm64'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          architecture: ${{ matrix.runner_arch }}
 
-      - name: Install dependencies
+      - name: Install dependencies (Native builds)
+        if: matrix.platform != 'linux' || matrix.arch != 'arm64'
         run: |
           uv sync
           uv pip install -r requirements-build.txt
 
-      - name: Build executable
+      - name: Build executable (Native builds)
+        if: matrix.platform != 'linux' || matrix.arch != 'arm64'
         run: |
           uv run pyinstaller db-backup.spec --clean --noconfirm
+        env:
+          # For Windows ARM64, we need to specify the architecture
+          ARCH: ${{ matrix.arch }}
 
-      - name: Rename executable (Linux/macOS)
+      - name: Ensure executable exists (Linux/macOS)
         if: matrix.platform != 'win'
         run: |
-          mv dist/db-backup dist/${{ matrix.artifact_name }}
-          chmod +x dist/${{ matrix.artifact_name }}
+          if [ ! -f "dist/db-backup" ]; then
+            echo "Error: db-backup not found"
+            exit 1
+          fi
+          chmod +x dist/db-backup
 
-      - name: Rename executable (Windows)
+      - name: Ensure executable exists (Windows)
         if: matrix.platform == 'win'
+        shell: pwsh
         run: |
-          move dist\db-backup.exe dist\${{ matrix.artifact_name }}
+          if (-not (Test-Path "dist/db-backup.exe")) {
+            Write-Error "Error: db-backup.exe not found"
+            exit 1
+          }
 
-      - name: Upload artifact
+      - name: Create archive (Linux/macOS)
+        if: matrix.platform != 'win'
+        run: |
+          cd dist
+          ARCHIVE_NAME="db-backup-${{ matrix.platform }}-${{ matrix.arch }}"
+          tar -czf "${ARCHIVE_NAME}.tar.gz" db-backup
+          zip -q "${ARCHIVE_NAME}.zip" db-backup
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Create archive (Windows)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          cd dist
+          $ARCHIVE_NAME = "db-backup-${{ matrix.platform }}-${{ matrix.arch }}"
+          # Create zip archive
+          Compress-Archive -Path db-backup.exe -DestinationPath "${ARCHIVE_NAME}.zip" -Force
+          # Create tar.gz archive (tar is available on Windows runners)
+          tar -czf "${ARCHIVE_NAME}.tar.gz" db-backup.exe
+          Write-Host "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $env:GITHUB_ENV
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.artifact_name }}
+          name: db-backup-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/${{ matrix.artifact_name }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
