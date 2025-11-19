@@ -505,6 +505,99 @@ In this configuration:
 -   Exclude tables
 -   Database Size Viewer
 
+## Building Standalone Executables
+
+This project can be built into a single standalone executable for cross-platform distribution using PyInstaller.
+
+### Prerequisites
+
+- Python 3.10+
+- [uv](https://github.com/astral-sh/uv) package manager (install with: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- PyInstaller (will be installed automatically by build scripts via uv)
+
+### Quick Build (Current Platform)
+
+To build an executable for your current platform:
+
+```bash
+# Make sure uv is installed (if not already)
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Build the executable (uv will handle dependencies)
+./build.sh
+```
+
+The executable will be created in the `dist/` directory:
+- **Linux/macOS**: `dist/db-backup`
+- **Windows**: `dist/db-backup.exe`
+
+### Cross-Platform Builds
+
+#### Using GitHub Actions (Recommended)
+
+The project includes a GitHub Actions workflow (`.github/workflows/build.yml`) that automatically builds executables for Linux, Windows, and macOS when you create a release tag:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+This will create executables for all platforms and attach them to the GitHub release.
+
+#### Manual Cross-Platform Builds
+
+**Linux (using Docker):**
+
+```bash
+docker run --rm -v $(pwd):/src -w /src python:3.11-slim bash -c \
+  'curl -LsSf https://astral.sh/uv/install.sh | sh && source ~/.cargo/env && uv sync && uv pip install -r requirements-build.txt && uv run pyinstaller db-backup.spec --clean'
+```
+
+**Windows:**
+
+```powershell
+uv sync
+uv pip install -r requirements-build.txt
+uv run pyinstaller db-backup.spec --clean
+```
+
+**macOS:**
+
+```bash
+uv sync
+uv pip install -r requirements-build.txt
+uv run pyinstaller db-backup.spec --clean
+```
+
+### Using the Executable
+
+Once built, the executable is completely standalone and includes all Python dependencies. You can:
+
+1. **Copy it anywhere**: The executable is self-contained and doesn't require Python to be installed
+2. **Run it directly**: `./db-backup --help` (Linux/macOS) or `db-backup.exe --help` (Windows)
+3. **Distribute it**: Share the executable with others without requiring them to install Python or dependencies
+
+**Note:** The executable still requires:
+- MySQL client tools (`mysqldump`) to be installed on the system
+- Appropriate system permissions for file operations
+- Network access for S3 backups (if using S3 storage)
+
+### Build Configuration
+
+The build configuration is defined in `db-backup.spec`. Key features:
+- Single-file executable (all dependencies bundled)
+- Console application (for CLI usage)
+- Includes all required Python packages (boto3, click, mysql-connector, paramiko, etc.)
+- UPX compression enabled (if available) to reduce file size
+
+### Troubleshooting
+
+If the executable fails to run:
+1. Check that all required system dependencies are installed (especially `mysqldump`)
+2. Verify the executable has execute permissions: `chmod +x dist/db-backup`
+3. Run with verbose output to see errors: `./dist/db-backup --help`
+4. Check that the build completed successfully without errors
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a pull request or open an issue if you have any suggestions or feedback.
